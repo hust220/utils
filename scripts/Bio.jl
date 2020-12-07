@@ -125,6 +125,32 @@ function read(filename::AbstractString, ::Type{Mol2})
     return residue
 end
 
+function read(filename::String, ::Type{Mol2})
+    residue = Residue()
+    flag = false
+    for line in eachline(filename)
+        if strip(line) == "@<TRIPOS>ATOM"
+            flag = true
+        elseif startswith(line, "@<TRIPOS>")
+            flag = false
+        else
+            if flag
+                v = split(strip(line), r"\s+")
+                #                println(v)
+                atom_id = parse(Int, v[1])
+                atom_name = v[2]
+                x = parse(Float64, v[3])
+                y = parse(Float64, v[4])
+                z = parse(Float64, v[5])
+                atom_type = v[6]
+                atom = Atom(atom_name, atom_id, x, y, z)
+                push!(residue.atoms, atom)
+            end
+        end
+    end
+    return residue
+end
+
 function read(filename::AbstractString, ::Type{PDB})
     residue = Residue()
     chain = Chain()
