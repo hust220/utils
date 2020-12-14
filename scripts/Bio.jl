@@ -3,6 +3,7 @@
 using Printf
 
 struct PDB end
+struct PDBQT end
 struct Mol2 end
 
 mutable struct Atom
@@ -37,8 +38,9 @@ mutable struct Residue
     name::String
     ind::Int
     atoms::Vector{Atom}
+    ishet # if the residue is HETATM
 end
-Residue() = Residue("", -1, [])
+Residue() = Residue("", -1, [], nothing)
 Base.getindex(residue::Residue, i::Int) = residue.atoms[i]
 Base.getindex(residue::Residue, atomname::String) = filter(atom->atom.name==atomname, residue.atoms)[1]
 function hasatom(residue::Residue, atomname::String)
@@ -100,32 +102,6 @@ Base.iterate(structure::Structure, state=1) = state > length(structure.models) ?
 Base.length(structure::Structure) = length(structure.models)
 
 function read(filename::AbstractString, ::Type{Mol2})
-    residue = Residue()
-    flag = false
-    for line in eachline(filename)
-        if strip(line) == "@<TRIPOS>ATOM"
-            flag = true
-        elseif startswith(line, "@<TRIPOS>")
-            flag = false
-        else
-            if flag
-                v = split(strip(line), r"\s+")
-                #                println(v)
-                atom_id = parse(Int, v[1])
-                atom_name = v[2]
-                x = parse(Float64, v[3])
-                y = parse(Float64, v[4])
-                z = parse(Float64, v[5])
-                atom_type = v[6]
-                atom = Atom(atom_name, atom_id, x, y, z)
-                push!(residue.atoms, atom)
-            end
-        end
-    end
-    return residue
-end
-
-function read(filename::String, ::Type{Mol2})
     residue = Residue()
     flag = false
     for line in eachline(filename)
@@ -218,6 +194,99 @@ function read(filename::AbstractString, ::Type{PDB})
             push!(residue.atoms, atom)
             residue.name = res_name
             residue.ind = res_num
+            if startswith(line, "HETATM")
+                residue.ishet = true
+            else
+                residue.ishet = false
+            end
+            chain.name = chain_name
+        elseif startswith(line, "MODEL")
+            addmodel!()
+        elseif startswith(line, "ENDMDL")
+            addmodel!()
+        elseif line == "TER"
+            addchain!()
+        elseif line == "END"
+            break
+        end
+    end
+
+    addmodel!()
+    #    println(structure)
+    return structure
+end
+
+function read(filename::AbstractString, ::Type{PDBQT})
+    residue = Residue()
+    chain = Chain()
+    model = Model()
+    structure = Structure()
+
+    function addresidue!()
+        if length(residue.atoms) > 0
+            push!(chain.residues, residue)
+            residue = Residue()
+        end
+    end
+
+    function addchain!()
+        addresidue!()
+        if length(chain.residues) > 0
+            push!(model.chains, chain)
+            chain = Chain()
+        end
+    end
+
+    function addmodel!()
+        addchain!()
+        if length(model.chains) > 0
+            push!(structure.models, model)
+            model = Model()
+        end
+    end
+
+    res_name = ""
+    chain_name = ""
+#    res_num = -1
+
+    for line in eachline(filename)
+        line = rstrip(line)
+        if startswith(line, "ATOM") || startswith(line, "HETATM")
+            res_name_old = res_name;
+            chain_name_old = chain_name;
+
+            atom_num = parse(Int, line[7:11]);
+            atom_name = strip(line[13:16]);
+            alt_loc = line[17:17];
+            res_name = strip(line[18:20]);
+            chain_name = strip(line[21:22]);
+#            res_num = parse(Int, line[23:26]);
+            insertion = line[27:27];
+            x = parse(Float64, line[31:38]);
+            y = parse(Float64, line[39:46]);
+            z = parse(Float64, line[47:54]);
+
+            if (length(line) > 60) occupancy = parse(Float64, line[55:60]) end
+            if (length(line) > 66) bfactor = parse(Float64, line[61:66]) end
+            if (length(line) > 78) element = strip(line[77:78]) end
+            if (length(line) > 80) charge = strip(line[79:80]) end
+
+            atom = Atom(atom_name, atom_num, x, y, z)
+
+            if res_name_old != res_name
+                addresidue!()
+                if chain_name_old != chain_name
+                    addchain!()
+                end
+            end
+            push!(residue.atoms, atom)
+            residue.name = res_name
+#            residue.ind = res_num
+            if startswith(line, "HETATM")
+                residue.ishet = true
+            else
+                residue.ishet = false
+            end
             chain.name = chain_name
         elseif startswith(line, "MODEL")
             addmodel!()
